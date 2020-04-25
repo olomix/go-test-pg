@@ -26,8 +26,12 @@ type Fixture struct {
 }
 
 type Pgpool interface {
-	//WithFixtures(t testing.TB, fixtures []Fixture)
-	//WithSQLs(t testing.TB, sqls []string)
+	// WithFixtures creates database from template database, and initializes it
+	// with fixtures from `fixtures` array
+	WithFixtures(t testing.TB, fixtures []Fixture) (*pgxpool.Pool, func())
+	// WithSQLs creates database from template database, and initializes it
+	// with fixtures from `sqls` array
+	WithSQLs(t testing.TB, sqls []string) (*pgxpool.Pool, func())
 	// WithEmpty creates empty database from template database, that was
 	// created from `schema` file.
 	WithEmpty(t testing.TB) (*pgxpool.Pool, func())
@@ -43,7 +47,45 @@ type pgpool struct {
 	rnd      *rand.Rand
 }
 
+func (p *pgpool) WithFixtures(
+	t testing.TB,
+	fixtures []Fixture,
+) (*pgxpool.Pool, func()) {
+	pool, clean := p.WithEmpty(t)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer cancel()
+	for i, f := range fixtures {
+		if _, err := pool.Exec(ctx, f.Query, f.Params...); err != nil {
+			clean()
+			t.Fatalf(
+				"can't load fixture at idx %v: %+v",
+				i, errors.WithStack(err),
+			)
+		}
+	}
+	return pool, clean
+}
+
+func (p *pgpool) WithSQLs(t testing.TB, sqls []string) (*pgxpool.Pool, func()) {
+	pool, clean := p.WithEmpty(t)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer cancel()
+	for i, s := range sqls {
+		if _, err := pool.Exec(ctx, s); err != nil {
+			clean()
+			t.Fatalf(
+				"can't load fixture at idx %v: %+v",
+				i, errors.WithStack(err),
+			)
+		}
+	}
+	return pool, clean
+}
+
 func (p *pgpool) getTmpl(t testing.TB) string {
+	if p.uri == "" {
+		t.Skip("database uri is not set")
+	}
 	t.Helper()
 	p.m.RLock()
 	err := p.err
@@ -234,6 +276,14 @@ func quote(name string) string {
 // NewPool create new Pgpool interface. It won't connect to database
 // until first reuse. `schema` file must exists and be valid SQL script.
 func NewPool(dbUri, schema, baseName string) Pgpool {
+	if dbUri != "" {
+		if baseName == "" {
+			panic("baseName is required if database uri is set")
+		}
+		if schema == "" {
+			panic("schema file name is required if database uri is set")
+		}
+	}
 	return &pgpool{
 		uri:      dbUri,
 		baseName: baseName,
