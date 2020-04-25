@@ -16,6 +16,9 @@ is composed of `baseName` and md5 hashsum of schema file content.
 On complete, temporary databases would be dropped, template database will not
 be dropped and would remain for future reuse.
 
+Template database would be created only on first use. If you call `NewPool`
+and do not call `With<something>` on it, real database would not be touched.
+
 
 ## Example usage
 
@@ -47,7 +50,7 @@ func TestMain(m *testing.M) {
     )
     flag.Parse()
 
-    dbpool = ptg.NewPool(*dbUri, *schemaFile, "adv-billing")
+    dbpool = ptg.NewPool(*dbUri, *schemaFile, "my-project")
     os.Exit(m.Run())
 }
 

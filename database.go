@@ -26,9 +26,10 @@ type Fixture struct {
 }
 
 type Pgpool interface {
-	Close() error
 	//WithFixtures(t testing.TB, fixtures []Fixture)
 	//WithSQLs(t testing.TB, sqls []string)
+	// WithEmpty creates empty database from template database, that was
+	// created from `schema` file.
 	WithEmpty(t testing.TB) (*pgxpool.Pool, func())
 }
 
@@ -160,10 +161,6 @@ func (p *pgpool) WithEmpty(t testing.TB) (*pgxpool.Pool, func()) {
 	}
 }
 
-func (p *pgpool) Close() error {
-	return dropDB(p.uri, p.tmpl)
-}
-
 func (p *pgpool) createDB(name, tmplName string) error {
 	query := `CREATE DATABASE ` + quote(name)
 	if tmplName != "" {
@@ -234,6 +231,8 @@ func quote(name string) string {
 	return pgx.Identifier{name}.Sanitize()
 }
 
+// NewPool create new Pgpool interface. It won't connect to database
+// until first reuse. `schema` file must exists and be valid SQL script.
 func NewPool(dbUri, schema, baseName string) Pgpool {
 	return &pgpool{
 		uri:      dbUri,
