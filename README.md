@@ -1,5 +1,7 @@
 # go-test-pg — Helper tool to test go programs with PostgreSQL database
 
+[![GoDoc](https://godoc.org/github.com/olomix/go-test-pg?status.svg)](https://godoc.org/github.com/olomix/go-test-pg)
+
 The aim this package is to help test golang programs against PostgreSQL
 database. It creates an empty database for each test and drops it when test
 is complete.
