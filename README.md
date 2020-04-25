@@ -35,34 +35,33 @@ import (
 var dbpool ptg.Pgpool
 
 func TestMain(m *testing.M) {
-	var dbUri = flag.String(
-		"db-uri",
-		"postgres://localhost/postgres?sslmode=disable",
-		"uri of postgres database",
-	)
-	var schemaFile = flag.String(
-		"schema",
-		"../schema.sql",
-		"file with database schema",
-	)
-	flag.Parse()
+    var dbUri = flag.String(
+        "db-uri",
+        "postgres://localhost/postgres?sslmode=disable",
+        "uri of postgres database",
+    )
+    var schemaFile = flag.String(
+        "schema",
+        "../schema.sql",
+        "file with database schema",
+    )
+    flag.Parse()
 
-	dbpool = ptg.NewPool(*dbUri, *schemaFile, "adv-billing")
-	os.Exit(m.Run())
+    dbpool = ptg.NewPool(*dbUri, *schemaFile, "adv-billing")
+    os.Exit(m.Run())
 }
 
 func TestX(t *testing.T) {
-	dbPool, dbClear := dbpool.WithEmpty(t)
-	defer dbClear()
-	    
+    dbPool, dbClear := dbpool.WithEmpty(t)
+    defer dbClear()
     var dbName string
-	err := dbPool.
-		QueryRow(context.Background(), "select current_database()").
-		Scan(&dbName)
-	if err != nil {
-		t.Fatal(err)
-	}
+    err := dbPool.
+        QueryRow(context.Background(), "select current_database()").
+        Scan(&dbName)
+    if err != nil {
+        t.Fatal(err)
+    }
 
-	t.Log(dbName)
+    t.Log(dbName)
 }
 ```
