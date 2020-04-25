@@ -27,32 +27,12 @@ package main
 
 import (
 	"context"
-	"flag"
-	"os"
 	"testing"
-	"time"
 
 	ptg "github.com/olomix/go-test-pg"
 )
 
-var dbpool ptg.Pgpool
-
-func TestMain(m *testing.M) {
-    var dbUri = flag.String(
-        "db-uri",
-        "postgres://localhost/postgres?sslmode=disable",
-        "uri of postgres database",
-    )
-    var schemaFile = flag.String(
-        "schema",
-        "../schema.sql",
-        "file with database schema",
-    )
-    flag.Parse()
-
-    dbpool = ptg.NewPool(*dbUri, *schemaFile, "my-project")
-    os.Exit(m.Run())
-}
+var dbpool = &ptg.Pgpool{SchemaFile: "../schema.sql"}
 
 func TestX(t *testing.T) {
     dbPool, dbClear := dbpool.WithEmpty(t)
@@ -67,4 +47,15 @@ func TestX(t *testing.T) {
 
     t.Log(dbName)
 }
+```
+
+Connection to database configured using standard PostgreSQL environment
+variable https://www.postgresql.org/docs/11/libpq-envars.html. User needs
+permissions to create databases.
+
+If you want to skip all tests, you need to set Skip field in Pgpool struct
+to false.
+
+```go
+var dbpool = &ptg.Pgpool{Skip: true}
 ```

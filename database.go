@@ -25,29 +25,24 @@ type Fixture struct {
 	Params []interface{}
 }
 
-type Pgpool interface {
-	// WithFixtures creates database from template database, and initializes it
-	// with fixtures from `fixtures` array
-	WithFixtures(t testing.TB, fixtures []Fixture) (*pgxpool.Pool, func())
-	// WithSQLs creates database from template database, and initializes it
-	// with fixtures from `sqls` array
-	WithSQLs(t testing.TB, sqls []string) (*pgxpool.Pool, func())
-	// WithEmpty creates empty database from template database, that was
-	// created from `schema` file.
-	WithEmpty(t testing.TB) (*pgxpool.Pool, func())
+type Pgpool struct {
+	// BaseName is the prefix of template and temporary databases.
+	// Default is dbtestpg.
+	BaseName string
+	// Name of schema file. Required. Tests would fail if not set.
+	SchemaFile string // schema file name
+	// If true, skip all database tests.
+	Skip bool
+
+	m    sync.RWMutex
+	err  error
+	tmpl string
+	rnd  *rand.Rand
 }
 
-type pgpool struct {
-	m        sync.RWMutex
-	err      error
-	uri      string
-	baseName string
-	schema   string // schema file name
-	tmpl     string
-	rnd      *rand.Rand
-}
-
-func (p *pgpool) WithFixtures(
+// WithFixtures creates database from template database, and initializes it
+// with fixtures from `fixtures` array
+func (p *Pgpool) WithFixtures(
 	t testing.TB,
 	fixtures []Fixture,
 ) (*pgxpool.Pool, func()) {
@@ -66,7 +61,9 @@ func (p *pgpool) WithFixtures(
 	return pool, clean
 }
 
-func (p *pgpool) WithSQLs(t testing.TB, sqls []string) (*pgxpool.Pool, func()) {
+// WithSQLs creates database from template database, and initializes it
+// with fixtures from `sqls` array
+func (p *Pgpool) WithSQLs(t testing.TB, sqls []string) (*pgxpool.Pool, func()) {
 	pool, clean := p.WithEmpty(t)
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
@@ -82,11 +79,13 @@ func (p *pgpool) WithSQLs(t testing.TB, sqls []string) (*pgxpool.Pool, func()) {
 	return pool, clean
 }
 
-func (p *pgpool) getTmpl(t testing.TB) string {
-	if p.uri == "" {
-		t.Skip("database uri is not set")
-	}
+func (p *Pgpool) getTmpl(t testing.TB) string {
 	t.Helper()
+
+	if p.Skip {
+		t.Skip("Skip database tests")
+	}
+
 	p.m.RLock()
 	err := p.err
 	tmpl := p.tmpl
@@ -100,6 +99,7 @@ func (p *pgpool) getTmpl(t testing.TB) string {
 		return tmpl
 	}
 	p.m.Lock()
+	p.rnd = rand.New(rand.NewSource(time.Now().UnixNano() + int64(os.Getpid())))
 	p.tmpl, p.err = p.createTemplateDB()
 	err = p.err
 	p.m.Unlock()
@@ -111,14 +111,18 @@ func (p *pgpool) getTmpl(t testing.TB) string {
 	return p.tmpl
 }
 
-func (p *pgpool) createRndDB(t testing.TB) (*pgxpool.Pool, string) {
+func (p *Pgpool) createRndDB(t testing.TB) (*pgxpool.Pool, string) {
 	tmpl := p.getTmpl(t)
 	dbName := fmt.Sprintf("%v_%v", tmpl, p.rnd.Int31())
-	err := p.createDB(dbName, tmpl)
 
-	cfg, err := pgxpool.ParseConfig(p.uri)
+	err := p.createDB(dbName, tmpl)
 	if err != nil {
-		_ = dropDB(p.uri, dbName)
+		t.Fatal(err)
+	}
+
+	cfg, err := pgxpool.ParseConfig("")
+	if err != nil {
+		_ = dropDB(dbName)
 		t.Fatal(err)
 	}
 	cfg.ConnConfig.Database = dbName
@@ -128,7 +132,7 @@ func (p *pgpool) createRndDB(t testing.TB) (*pgxpool.Pool, string) {
 
 	pool, err := pgxpool.ConnectConfig(ctx, cfg)
 	if err != nil {
-		_ = dropDB(p.uri, dbName)
+		_ = dropDB(dbName)
 		t.Fatal()
 	}
 
@@ -136,11 +140,11 @@ func (p *pgpool) createRndDB(t testing.TB) (*pgxpool.Pool, string) {
 }
 
 func withNewConnection(
-	uri, dbName string,
+	dbName string,
 	fn func(context.Context, *pgx.Conn) error,
 ) (err error) {
 	var cfg *pgx.ConnConfig
-	cfg, err = pgx.ParseConfig(uri)
+	cfg, err = pgx.ParseConfig("")
 	if err != nil {
 		return errors.WithStack(err)
 	}
@@ -175,9 +179,9 @@ func withNewConnection(
 	return err
 }
 
-func dropDB(uri, dbName string) error {
+func dropDB(dbName string) error {
 	return withNewConnection(
-		uri, "",
+		"",
 		func(ctx context.Context, conn *pgx.Conn) error {
 			_, err := conn.Exec(ctx, "DROP DATABASE "+quote(dbName))
 			return errors.WithStack(err)
@@ -185,7 +189,9 @@ func dropDB(uri, dbName string) error {
 	)
 }
 
-func (p *pgpool) WithEmpty(t testing.TB) (*pgxpool.Pool, func()) {
+// WithEmpty creates empty database from template database, that was
+// created from `schema` file.
+func (p *Pgpool) WithEmpty(t testing.TB) (*pgxpool.Pool, func()) {
 	pool, dbName := p.createRndDB(t)
 	return pool, func() {
 		acquiredConns := pool.Stat().AcquiredConns()
@@ -196,21 +202,21 @@ func (p *pgpool) WithEmpty(t testing.TB) (*pgxpool.Pool, func()) {
 			)
 		}
 		pool.Close()
-		err := dropDB(p.uri, dbName)
+		err := dropDB(dbName)
 		if err != nil {
 			t.Errorf("Can't drop DB %v: %v", dbName, err)
 		}
 	}
 }
 
-func (p *pgpool) createDB(name, tmplName string) error {
+func (p *Pgpool) createDB(name, tmplName string) error {
 	query := `CREATE DATABASE ` + quote(name)
 	if tmplName != "" {
 		query += ` WITH TEMPLATE ` + quote(tmplName)
 	}
 
 	return withNewConnection(
-		p.uri, "",
+		"",
 		func(ctx context.Context, conn *pgx.Conn) error {
 			_, err := conn.Exec(ctx, query)
 			return errors.WithStack(err)
@@ -218,18 +224,21 @@ func (p *pgpool) createDB(name, tmplName string) error {
 	)
 }
 
-func (p *pgpool) createTemplateDB() (string, error) {
-	schemaSql, err := ioutil.ReadFile(p.schema)
+func (p *Pgpool) createTemplateDB() (string, error) {
+	if p.SchemaFile == "" {
+		return "", errors.New("SchemaFile is empty")
+	}
+	schemaSql, err := ioutil.ReadFile(p.SchemaFile)
 	if err != nil {
 		return "", errors.WithStack(err)
 	}
 	checksum := md5.Sum(schemaSql)
 	schemaHex := hex.EncodeToString(checksum[:])
-	tmpl := fmt.Sprintf("%v_%v", p.baseName, schemaHex)
+	tmpl := fmt.Sprintf("%v_%v", p.BaseName, schemaHex)
 
 	var dbExists bool
 	err = withNewConnection(
-		p.uri, "",
+		"",
 		func(ctx context.Context, conn *pgx.Conn) error {
 			query := `
 SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)
@@ -254,7 +263,7 @@ SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)
 	}
 
 	err = withNewConnection(
-		p.uri, tmpl,
+		tmpl,
 		func(ctx context.Context, conn *pgx.Conn) error {
 			_, err = conn.Exec(ctx, string(schemaSql))
 			return errors.WithStack(err)
@@ -262,7 +271,7 @@ SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)
 	)
 
 	if err != nil {
-		_ = dropDB(p.uri, tmpl)
+		_ = dropDB(tmpl)
 		return "", err
 	}
 
@@ -271,25 +280,4 @@ SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)
 
 func quote(name string) string {
 	return pgx.Identifier{name}.Sanitize()
-}
-
-// NewPool create new Pgpool interface. It won't connect to database
-// until first reuse. `schema` file must exists and be valid SQL script.
-func NewPool(dbUri, schema, baseName string) Pgpool {
-	if dbUri != "" {
-		if baseName == "" {
-			panic("baseName is required if database uri is set")
-		}
-		if schema == "" {
-			panic("schema file name is required if database uri is set")
-		}
-	}
-	return &pgpool{
-		uri:      dbUri,
-		baseName: baseName,
-		schema:   schema,
-		rnd: rand.New(
-			rand.NewSource(time.Now().UnixNano() + int64(os.Getpid())),
-		),
-	}
 }
