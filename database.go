@@ -234,7 +234,11 @@ func (p *Pgpool) createTemplateDB() (string, error) {
 	}
 	checksum := md5.Sum(schemaSql)
 	schemaHex := hex.EncodeToString(checksum[:])
-	tmpl := fmt.Sprintf("%v_%v", p.BaseName, schemaHex)
+	baseName := "dbtestpg"
+	if p.BaseName != "" {
+		baseName = p.BaseName
+	}
+	tmpl := fmt.Sprintf("%v_%v", baseName, schemaHex)
 
 	var dbExists bool
 	err = withNewConnection(
