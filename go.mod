@@ -1,4 +1,4 @@
-module github.com/olomix/go-test-pg
+module github.com/olomix/go-test-pg/v2
 
 go 1.14
 
