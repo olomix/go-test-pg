@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"os"
@@ -161,13 +160,17 @@ func (p *Pgpool) createRndDB(t testing.TB) (string, error) {
 	return dbName, p.createDB(dbName, tmpl)
 }
 
-func (p *Pgpool) createRndDBPool(t testing.TB) (*pgxpool.Pool, string) {
-	dbName, err := p.createRndDB(t)
+func (p *Pgpool) createRndDBPool(
+	t testing.TB) (pool *pgxpool.Pool, dbName string) {
+
+	var err error
+	dbName, err = p.createRndDB(t)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	cfg, err := pgxpool.ParseConfig("")
+	var cfg *pgxpool.Config
+	cfg, err = pgxpool.ParseConfig("")
 	if err != nil {
 		_ = dropDB(dbName)
 		t.Fatal(err)
@@ -177,7 +180,7 @@ func (p *Pgpool) createRndDBPool(t testing.TB) (*pgxpool.Pool, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
-	pool, err := pgxpool.ConnectConfig(ctx, cfg)
+	pool, err = pgxpool.ConnectConfig(ctx, cfg)
 	if err != nil {
 		_ = dropDB(dbName)
 		t.Fatal()
@@ -271,7 +274,9 @@ func (p *Pgpool) WithStdEmpty(t testing.TB) *sql.DB {
 	return db
 }
 
-func (p *Pgpool) newStdDBWithCleanup(t testing.TB) (*sql.DB, func() error) {
+func (p *Pgpool) newStdDBWithCleanup(
+	t testing.TB) (db *sql.DB, cleanupFn func() error) {
+
 	dbName, err := p.createRndDB(t)
 	if err != nil {
 		t.Fatal(err)
@@ -285,14 +290,14 @@ func (p *Pgpool) newStdDBWithCleanup(t testing.TB) (*sql.DB, func() error) {
 		return nil, nil
 	}
 
-	db, err := sql.Open("pgx", connString)
+	db, err = sql.Open("pgx", connString)
 	if err != nil {
 		_ = dropDB(dbName)
 		t.Fatal(err)
 		return nil, nil
 	}
 
-	cleanupFn := func() error {
+	cleanupFn = func() error {
 		stats := db.Stats()
 		if stats.InUse > 0 {
 			return errors.Errorf(
@@ -333,7 +338,7 @@ func (p *Pgpool) createTemplateDB() (string, error) {
 	if p.SchemaFile == "" {
 		return "template1", nil
 	}
-	schemaSql, err := ioutil.ReadFile(p.SchemaFile)
+	schemaSql, err := os.ReadFile(p.SchemaFile)
 	if err != nil {
 		return "", errors.WithStack(err)
 	}
