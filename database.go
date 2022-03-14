@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/md5"
 	"database/sql"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/jackc/pgx/v4/stdlib"
@@ -140,7 +142,9 @@ func (p *Pgpool) getTmpl(t testing.TB) string {
 
 // Register pgx.ConnConfig with std driver.
 // Return connection string for database/sql and error.
-func (p *Pgpool) registerStdConfig(t testing.TB, dbName string) (string, error) {
+func (p *Pgpool) registerStdConfig(t testing.TB,
+	dbName string) (string, error) {
+
 	connConfig, err := pgx.ParseConfig("")
 	if err != nil {
 		return "", errors.WithStack(err)
@@ -341,42 +345,71 @@ func (p *Pgpool) createTemplateDB() (string, error) {
 	}
 	tmplDbName := fmt.Sprintf("%v_%v", baseName, schemaHex)
 
-	var dbExists bool
+	// ID of the advisory lock. Lock would be taken on master database (not
+	// on database we are going to create) and prevent from parallel creation
+	// of the same database from separate processes.
+	lockID := int64(binary.BigEndian.Uint64(checksum[:8]))
+
 	err = withNewConnection(
 		"",
 		func(ctx context.Context, conn *pgx.Conn) error {
-			query := `
-SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)
-`
-			err := conn.QueryRow(ctx, query, tmplDbName).Scan(&dbExists)
+			var dbExists bool
+			err := conn.QueryRow(ctx,
+				`SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)`,
+				tmplDbName).Scan(&dbExists)
 			if err != nil {
 				return errors.WithStack(err)
 			}
 			if dbExists {
 				return nil
 			}
+
+			// If we need to create a database, take an advisory lock on
+			// master database to prevent parallel creation of databases
+			// from several test processes.
+			var x pgtype.Unknown
+			err = conn.
+				QueryRow(ctx, `SELECT pg_advisory_lock($1)`, lockID).
+				Scan(&x)
+			if err != nil {
+				return errors.WithStack(err)
+			}
+
+			// Check again for database existence. Database may be created
+			// in parallel process while waiting for the lock.
+			err = conn.QueryRow(ctx,
+				`SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)`,
+				tmplDbName).Scan(&dbExists)
+			if err != nil {
+				return errors.WithStack(err)
+			}
+			if dbExists {
+				return nil
+			}
+
 			_, err = conn.Exec(ctx, `CREATE DATABASE `+quote(tmplDbName))
-			return errors.WithStack(err)
+			if err != nil {
+				return errors.WithStack(err)
+			}
+
+			err = withNewConnection(
+				tmplDbName,
+				func(ctx context.Context, conn *pgx.Conn) error {
+					_, err = conn.Exec(ctx, string(schemaSql))
+					return errors.WithStack(err)
+				},
+			)
+
+			if err != nil {
+				_ = dropDB(tmplDbName)
+				return err
+			}
+
+			return nil
 		},
 	)
-	if err != nil {
-		return "", err
-	}
-
-	if dbExists {
-		return tmplDbName, nil
-	}
-
-	err = withNewConnection(
-		tmplDbName,
-		func(ctx context.Context, conn *pgx.Conn) error {
-			_, err = conn.Exec(ctx, string(schemaSql))
-			return errors.WithStack(err)
-		},
-	)
 
 	if err != nil {
-		_ = dropDB(tmplDbName)
 		return "", err
 	}
 
