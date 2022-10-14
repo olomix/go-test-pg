@@ -10,7 +10,9 @@ jobs:
   test:
     strategy:
       matrix:
-        containers: [ 1.17.8-bullseye ]
+        containers:
+        - 1.18.7-bullseye
+        - 1.19.2-bullseye
     runs-on: ubuntu-latest
     container: golang:${{ matrix.containers }}
     env:
@@ -19,8 +21,8 @@ jobs:
       PGUSER: postgres
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
-      - uses: actions/cache@v2
+        uses: actions/checkout@v3
+      - uses: actions/cache@v3
         with:
           path: |
             ~/.cache/go-build
