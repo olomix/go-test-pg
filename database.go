@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgtype"
-	"github.com/jackc/pgx/v4"
-	"github.com/jackc/pgx/v4/pgxpool"
-	"github.com/jackc/pgx/v4/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5/tracelog"
 	"github.com/pkg/errors"
 )
 
@@ -148,7 +148,10 @@ func (p *Pgpool) registerStdConfig(t testing.TB,
 	if err != nil {
 		return "", errors.WithStack(err)
 	}
-	connConfig.Logger = newLogger(t)
+	connConfig.Tracer = &tracelog.TraceLog{
+		Logger:   newLogger(t),
+		LogLevel: tracelog.LogLevelTrace,
+	}
 	connConfig.Database = dbName
 	return stdlib.RegisterConnConfig(connConfig), nil
 }
@@ -180,7 +183,7 @@ func (p *Pgpool) createRndDBPool(
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 
-	pool, err = pgxpool.ConnectConfig(ctx, cfg)
+	pool, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		_ = dropDB(dbName)
 		t.Fatal()
@@ -372,7 +375,7 @@ func (p *Pgpool) createTemplateDB() (string, error) {
 			// If we need to create a database, take an advisory lock on
 			// master database to prevent parallel creation of databases
 			// from several test processes.
-			var x pgtype.Unknown
+			var x interface{}
 			err = conn.
 				QueryRow(ctx, `SELECT pg_advisory_lock($1)`, lockID).
 				Scan(&x)

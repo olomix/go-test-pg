@@ -2,6 +2,9 @@
 
 [![GoDoc](https://godoc.org/github.com/olomix/go-test-pg?status.svg)](https://godoc.org/github.com/olomix/go-test-pg)
 
+v2 version depends on pgx/v5. If you want support for pgx/v4, use 1.x.x
+version of this package.
+
 The aim this package is to help test golang programs against PostgreSQL
 database. It creates an empty database for each test and drops it when test
 is complete.
@@ -35,7 +38,7 @@ import (
 	"context"
 	"testing"
 
-	ptg "github.com/olomix/go-test-pg"
+	ptg "github.com/olomix/go-test-pg/v2"
 )
 
 var dbpool = &ptg.Pgpool{SchemaFile: "../schema.sql"}

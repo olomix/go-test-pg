@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgx/v5/tracelog"
 )
 
 func newLogger(t testing.TB) logger {
@@ -17,7 +17,7 @@ type logger struct {
 	t testing.TB
 }
 
-func (l logger) Log(ctx context.Context, level pgx.LogLevel, msg string,
+func (l logger) Log(ctx context.Context, level tracelog.LogLevel, msg string,
 	data map[string]interface{}) {
 	if len(data) > 0 {
 		params := make([]string, 0, len(data))
