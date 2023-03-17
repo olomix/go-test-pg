@@ -375,10 +375,8 @@ func (p *Pgpool) createTemplateDB() (string, error) {
 			// If we need to create a database, take an advisory lock on
 			// master database to prevent parallel creation of databases
 			// from several test processes.
-			var x interface{}
-			err = conn.
-				QueryRow(ctx, `SELECT pg_advisory_lock($1)`, lockID).
-				Scan(&x)
+			_, err = conn.
+				QueryRow(ctx, `SELECT pg_advisory_lock($1)`, lockID)
 			if err != nil {
 				return errors.WithStack(err)
 			}
