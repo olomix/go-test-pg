@@ -1,11 +1,13 @@
 package go_test_pg
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"regexp"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/pkg/errors"
 )
 
@@ -69,6 +71,18 @@ func TestPgpool_WithStdEmpty_InuseConnections(t *testing.T) {
 	}
 	if err = cleanupFn(); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestName(t *testing.T) {
+	var dbPool = Pgpool{
+		BaseName:   "go_test_pg",
+		SchemaFile: "./testdata/schema1.sql",
+	}
+	db := dbPool.WithEmpty(t)
+	err := db.QueryRow(context.Background(), `SELECT id FROM table1`).Scan()
+	if err != pgx.ErrNoRows {
+		t.Fatalf("Wanot pgx.ErrNoRows error, got %v", err)
 	}
 }
 
