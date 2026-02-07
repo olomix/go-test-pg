@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pkg/errors"
 )
 
@@ -83,6 +84,82 @@ func TestName(t *testing.T) {
 	err := db.QueryRow(context.Background(), `SELECT id FROM table1`).Scan()
 	if err != pgx.ErrNoRows {
 		t.Fatalf("Wanot pgx.ErrNoRows error, got %v", err)
+	}
+}
+
+func TestWithPoolConfig_PerTest(t *testing.T) {
+	x := Pgpool{}
+	var maxConns int32 = 2
+	pool := x.WithEmpty(t, WithPoolConfig(func(cfg *pgxpool.Config) {
+		cfg.MaxConns = maxConns
+	}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer cancel()
+
+	err := pool.Ping(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stat := pool.Stat()
+	if stat.MaxConns() != maxConns {
+		t.Fatalf("expected MaxConns=%d, got %d",
+			maxConns, stat.MaxConns())
+	}
+}
+
+func TestWithPoolConfig_Global(t *testing.T) {
+	var maxConns int32 = 3
+	x := Pgpool{
+		Options: []Option{
+			WithPoolConfig(func(cfg *pgxpool.Config) {
+				cfg.MaxConns = maxConns
+			}),
+		},
+	}
+	pool := x.WithEmpty(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer cancel()
+
+	err := pool.Ping(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stat := pool.Stat()
+	if stat.MaxConns() != maxConns {
+		t.Fatalf("expected MaxConns=%d, got %d",
+			maxConns, stat.MaxConns())
+	}
+}
+
+func TestWithPoolConfig_PerTestOverridesGlobal(t *testing.T) {
+	x := Pgpool{
+		Options: []Option{
+			WithPoolConfig(func(cfg *pgxpool.Config) {
+				cfg.MaxConns = 5
+			}),
+		},
+	}
+	var maxConns int32 = 2
+	pool := x.WithEmpty(t, WithPoolConfig(func(cfg *pgxpool.Config) {
+		cfg.MaxConns = maxConns
+	}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer cancel()
+
+	err := pool.Ping(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stat := pool.Stat()
+	if stat.MaxConns() != maxConns {
+		t.Fatalf("expected MaxConns=%d, got %d",
+			maxConns, stat.MaxConns())
 	}
 }
 

@@ -67,3 +67,40 @@ struct to `true`.
 ```go
 var dbpool = &ptg.Pgpool{Skip: true}
 ```
+
+## Connection Options
+
+You can customize connection settings using functional options. `WithPoolConfig`
+gives you access to `*pgxpool.Config`, which includes `ConnConfig` for
+connection-level settings.
+
+### Per-test options
+
+Pass options directly to any `With*` method:
+
+```go
+pool := dbpool.WithEmpty(t, ptg.WithPoolConfig(func(cfg *pgxpool.Config) {
+    cfg.MaxConns = 2
+}))
+```
+
+### Global options
+
+Set `Options` on the `Pgpool` struct to apply to all tests sharing the pool:
+
+```go
+var dbpool = &ptg.Pgpool{
+    SchemaFile: "../schema.sql",
+    Options: []ptg.Option{
+        ptg.WithPoolConfig(func(cfg *pgxpool.Config) {
+            cfg.MaxConns = 5
+        }),
+    },
+}
+```
+
+Per-test options are applied after global options and override them.
+
+The `WithStd*` methods return `*sql.DB` and do not use a pgx pool internally,
+only a pgx connection. Pool-level settings (e.g. `MaxConns`) will be ignored,
+but connection-level settings via `cfg.ConnConfig` will be honored.

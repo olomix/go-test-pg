@@ -28,6 +28,21 @@ type Fixture struct {
 	Params []interface{}
 }
 
+type options struct {
+	poolConfig func(*pgxpool.Config)
+}
+
+// Option configures database creation and connection behavior.
+type Option func(*options)
+
+// WithPoolConfig returns an Option that modifies the pgxpool.Config
+// used to create the test database pool.
+func WithPoolConfig(fn func(*pgxpool.Config)) Option {
+	return func(o *options) {
+		o.poolConfig = fn
+	}
+}
+
 type Pgpool struct {
 	// BaseName is the prefix of template and temporary databases.
 	// Default is dbtestpg.
@@ -36,6 +51,8 @@ type Pgpool struct {
 	SchemaFile string // schema file name
 	// If true, skip all database tests.
 	Skip bool
+	// Options applied to all databases created by this pool.
+	Options []Option
 
 	m    sync.RWMutex
 	err  error
@@ -45,8 +62,8 @@ type Pgpool struct {
 
 // WithFixtures creates database from template database, and initializes it
 // with fixtures from `fixtures` array
-func (p *Pgpool) WithFixtures(t testing.TB, fixtures []Fixture) *pgxpool.Pool {
-	pool := p.WithEmpty(t)
+func (p *Pgpool) WithFixtures(t testing.TB, fixtures []Fixture, opts ...Option) *pgxpool.Pool {
+	pool := p.WithEmpty(t, opts...)
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 	for i, f := range fixtures {
@@ -62,8 +79,8 @@ func (p *Pgpool) WithFixtures(t testing.TB, fixtures []Fixture) *pgxpool.Pool {
 
 // WithStdFixtures creates database from template database, and initializes it
 // with fixtures from `fixtures` array
-func (p *Pgpool) WithStdFixtures(t testing.TB, fixtures []Fixture) *sql.DB {
-	db := p.WithStdEmpty(t)
+func (p *Pgpool) WithStdFixtures(t testing.TB, fixtures []Fixture, opts ...Option) *sql.DB {
+	db := p.WithStdEmpty(t, opts...)
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 	for i, f := range fixtures {
@@ -77,8 +94,8 @@ func (p *Pgpool) WithStdFixtures(t testing.TB, fixtures []Fixture) *sql.DB {
 
 // WithSQLs creates database from template database, and initializes it
 // with fixtures from `sqls` array
-func (p *Pgpool) WithSQLs(t testing.TB, sqls []string) *pgxpool.Pool {
-	pool := p.WithEmpty(t)
+func (p *Pgpool) WithSQLs(t testing.TB, sqls []string, opts ...Option) *pgxpool.Pool {
+	pool := p.WithEmpty(t, opts...)
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 	for i, s := range sqls {
@@ -94,8 +111,8 @@ func (p *Pgpool) WithSQLs(t testing.TB, sqls []string) *pgxpool.Pool {
 
 // WithStdSQLs creates database from template database, and initializes it
 // with fixtures from `sqls` array
-func (p *Pgpool) WithStdSQLs(t testing.TB, sqls []string) *sql.DB {
-	db := p.WithStdEmpty(t)
+func (p *Pgpool) WithStdSQLs(t testing.TB, sqls []string, opts ...Option) *sql.DB {
+	db := p.WithStdEmpty(t, opts...)
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
 	for i, s := range sqls {
@@ -142,7 +159,15 @@ func (p *Pgpool) getTmpl(t testing.TB) string {
 // Register pgx.ConnConfig with std driver.
 // Return connection string for database/sql and error.
 func (p *Pgpool) registerStdConfig(t testing.TB,
-	dbName string) (string, error) {
+	dbName string, opts ...Option) (string, error) {
+
+	var o options
+	for _, opt := range p.Options {
+		opt(&o)
+	}
+	for _, opt := range opts {
+		opt(&o)
+	}
 
 	connConfig, err := pgx.ParseConfig("")
 	if err != nil {
@@ -153,6 +178,14 @@ func (p *Pgpool) registerStdConfig(t testing.TB,
 		LogLevel: tracelog.LogLevelTrace,
 	}
 	connConfig.Database = dbName
+	if o.poolConfig != nil {
+		poolCfg := &pgxpool.Config{ConnConfig: connConfig}
+		o.poolConfig(poolCfg)
+		if connConfig.Database != dbName {
+			return "", errors.New(
+				"WithPoolConfig must not change the database name")
+		}
+	}
 	return stdlib.RegisterConnConfig(connConfig), nil
 }
 
@@ -164,12 +197,20 @@ func (p *Pgpool) createRndDB(t testing.TB) (string, error) {
 }
 
 func (p *Pgpool) createRndDBPool(
-	t testing.TB) (pool *pgxpool.Pool, dbName string) {
+	t testing.TB, opts ...Option) (pool *pgxpool.Pool, dbName string) {
 
 	var err error
 	dbName, err = p.createRndDB(t)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	var o options
+	for _, opt := range p.Options {
+		opt(&o)
+	}
+	for _, opt := range opts {
+		opt(&o)
 	}
 
 	var cfg *pgxpool.Config
@@ -179,6 +220,13 @@ func (p *Pgpool) createRndDBPool(
 		t.Fatal(err)
 	}
 	cfg.ConnConfig.Database = dbName
+	if o.poolConfig != nil {
+		o.poolConfig(cfg)
+		if cfg.ConnConfig.Database != dbName {
+			_ = dropDB(dbName)
+			t.Fatal("WithPoolConfig must not change the database name")
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
@@ -186,7 +234,7 @@ func (p *Pgpool) createRndDBPool(
 	pool, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		_ = dropDB(dbName)
-		t.Fatal()
+		t.Fatal(err)
 	}
 
 	return pool, dbName
@@ -244,8 +292,8 @@ func dropDB(dbName string) error {
 
 // WithEmpty creates empty database from template database, that was
 // created from `schema` file.
-func (p *Pgpool) WithEmpty(t testing.TB) *pgxpool.Pool {
-	pool, dbName := p.createRndDBPool(t)
+func (p *Pgpool) WithEmpty(t testing.TB, opts ...Option) *pgxpool.Pool {
+	pool, dbName := p.createRndDBPool(t, opts...)
 	t.Cleanup(func() {
 		acquiredConns := pool.Stat().AcquiredConns()
 		if acquiredConns > 0 {
@@ -265,8 +313,8 @@ func (p *Pgpool) WithEmpty(t testing.TB) *pgxpool.Pool {
 
 // WithStdEmpty creates empty database from template database, that was
 // created from `schema` file.
-func (p *Pgpool) WithStdEmpty(t testing.TB) *sql.DB {
-	db, cleanupFn := p.newStdDBWithCleanup(t)
+func (p *Pgpool) WithStdEmpty(t testing.TB, opts ...Option) *sql.DB {
+	db, cleanupFn := p.newStdDBWithCleanup(t, opts...)
 	if cleanupFn != nil {
 		t.Cleanup(func() {
 			if err := cleanupFn(); err != nil {
@@ -278,7 +326,7 @@ func (p *Pgpool) WithStdEmpty(t testing.TB) *sql.DB {
 }
 
 func (p *Pgpool) newStdDBWithCleanup(
-	t testing.TB) (db *sql.DB, cleanupFn func() error) {
+	t testing.TB, opts ...Option) (db *sql.DB, cleanupFn func() error) {
 
 	dbName, err := p.createRndDB(t)
 	if err != nil {
@@ -286,7 +334,7 @@ func (p *Pgpool) newStdDBWithCleanup(
 		return nil, nil
 	}
 
-	connString, err := p.registerStdConfig(t, dbName)
+	connString, err := p.registerStdConfig(t, dbName, opts...)
 	if err != nil {
 		_ = dropDB(dbName)
 		t.Fatal(err)
@@ -295,6 +343,7 @@ func (p *Pgpool) newStdDBWithCleanup(
 
 	db, err = sql.Open("pgx", connString)
 	if err != nil {
+		stdlib.UnregisterConnConfig(connString)
 		_ = dropDB(dbName)
 		t.Fatal(err)
 		return nil, nil
@@ -311,6 +360,7 @@ func (p *Pgpool) newStdDBWithCleanup(
 		if err != nil {
 			return errors.Errorf("Can't close DB %v: %v", dbName, err)
 		}
+		stdlib.UnregisterConnConfig(connString)
 		err = dropDB(dbName)
 		if err != nil {
 			return errors.Errorf("Can't drop DB %v: %v", dbName, err)
