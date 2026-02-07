@@ -2,32 +2,32 @@
 
 [![GoDoc](https://godoc.org/github.com/olomix/go-test-pg?status.svg)](https://godoc.org/github.com/olomix/go-test-pg)
 
-v2 version depends on pgx/v5. If you want support for pgx/v4, use 1.x.x
-version of this package.
+v2 depends on pgx/v5. For pgx/v4 support, use the 1.x.x version of this
+package.
 
-The aim this package is to help test golang programs against PostgreSQL
-database. It creates an empty database for each test and drops it when test
-is complete.
+This package helps test Go programs against a PostgreSQL database. It
+creates a fresh database for each test and drops it when the test completes.
 
-As a side effect tool checks that all resources are released when test exits.
-If any Rows is not closed or Conn is not released to pool, test fails.
+The tool also checks that all resources are released when the test exits.
+If any `Rows` are not closed or a `Conn` is not released to the pool, the
+test fails.
 
-`go-test-pg` uses schema file to initialize database with. It creates
-template database with this schema. Then each temporary database for every test
-creates from this template database. If the template database for this
-schema is exists, it will be reused. The name of the template database 
-is composed of `baseName` and md5 hashsum of schema file content. If schema file
-is empty, then use default PostgreSQL empty database `template1`.
+`go-test-pg` uses a schema file to set up the database. It creates a
+template database from this schema, and each test gets its own copy of
+that template. If a template database for the schema already exists, it
+is reused. The template name is composed of `baseName` and the MD5 hash
+of the schema file content. If no schema file is provided, the default
+PostgreSQL `template1` database is used.
 
-On complete, temporary databases would be dropped, template database will not
-be dropped and would remain for future reuse.
+When a test completes, its temporary database is dropped. The template
+database is kept for future reuse.
 
-Template database would be created only on first use. If you call `NewPool`
-and do not call `With<something>` on it, real database would not be touched.
+The template database is created on first use. If you create a `Pgpool`
+but never call any `With*` method, no database is touched.
 
-Each method was `Std` version that returns `*sql.DB`. For example,
-default method `WithFixtures` returns `*pgxpool.Pool` and `WithStdFixtures`
-returns `*sql.DB`.
+Each method has a `Std` variant that returns `*sql.DB`. For example,
+`WithFixtures` returns `*pgxpool.Pool` and `WithStdFixtures` returns
+`*sql.DB`.
 
 ## Example usage
 
@@ -57,12 +57,11 @@ func TestX(t *testing.T) {
 }
 ```
 
-Connection to database configured using standard PostgreSQL environment
-variable https://www.postgresql.org/docs/11/libpq-envars.html. User needs
-permissions to create databases.
+The database connection is configured using standard PostgreSQL environment
+variables (https://www.postgresql.org/docs/11/libpq-envars.html). The user
+needs permissions to create databases.
 
-If you want to skip all database tests, you need to set `Skip` field in Pgpool
-struct to `true`.
+To skip all database tests, set `Skip` to `true`:
 
 ```go
 var dbpool = &ptg.Pgpool{Skip: true}
