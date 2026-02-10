@@ -350,6 +350,7 @@ func (p *Pgpool) newStdDBWithCleanup(
 	}
 
 	cleanupFn = func() error {
+		defer stdlib.UnregisterConnConfig(connString)
 		stats := db.Stats()
 		if stats.InUse > 0 {
 			return errors.Errorf(
@@ -360,7 +361,6 @@ func (p *Pgpool) newStdDBWithCleanup(
 		if err != nil {
 			return errors.Errorf("Can't close DB %v: %v", dbName, err)
 		}
-		stdlib.UnregisterConnConfig(connString)
 		err = dropDB(dbName)
 		if err != nil {
 			return errors.Errorf("Can't drop DB %v: %v", dbName, err)
