@@ -1,6 +1,6 @@
 # go-test-pg — Helper tool to test go programs with PostgreSQL database
 
-[![GoDoc](https://godoc.org/github.com/olomix/go-test-pg?status.svg)](https://godoc.org/github.com/olomix/go-test-pg)
+[![GoDoc](https://godoc.org/github.com/olomix/go-test-pg/v2?status.svg)](https://godoc.org/github.com/olomix/go-test-pg/v2)
 
 v2 depends on pgx/v5. For pgx/v4 support, use the 1.x.x version of this
 package.
